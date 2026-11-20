@@ -3858,6 +3858,90 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
             .bulk-actions { flex-direction: column; }
         }
 
+
+        /* ── Momentum Side Panel ── */
+        .mom-panel {
+            margin-top: .9rem;
+            padding: .75rem .85rem;
+            border: 1px solid #2a3060;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(124,58,237,.08), rgba(16,185,129,.05));
+        }
+        .mom-hdr {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: .55rem;
+            flex-wrap: wrap;
+            gap: .4rem;
+        }
+        .mom-title {
+            font-size: .72rem;
+            font-weight: 700;
+            color: #c4b5fd;
+        }
+        .mom-auto-label {
+            font-size: .62rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            gap: .35rem;
+            cursor: pointer;
+            user-select: none;
+        }
+        .mom-auto-label input { accent-color: #8b5cf6; width: 14px; height: 14px; }
+        .mom-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: .55rem;
+        }
+        .mom-card {
+            padding: .55rem .65rem;
+            border-radius: 8px;
+            border: 1px solid #2a3060;
+            background: #0e1020;
+            text-align: center;
+            transition: border-color .25s, box-shadow .25s;
+        }
+        .mom-card.strong {
+            border-color: #10b981;
+            box-shadow: 0 0 12px rgba(16,185,129,.25);
+        }
+        .mom-card.moderate {
+            border-color: #f59e0b;
+            box-shadow: 0 0 10px rgba(245,158,11,.18);
+        }
+        .mom-card.weak { border-color: #334155; }
+        .mom-side {
+            font-size: .92rem;
+            font-weight: 800;
+            letter-spacing: .02em;
+        }
+        .mom-conf {
+            font-size: .62rem;
+            font-weight: 700;
+            margin: .15rem 0 .3rem;
+            text-transform: uppercase;
+        }
+        .mom-detail {
+            display: flex;
+            flex-direction: column;
+            gap: .12rem;
+            font-size: .58rem;
+            color: #64748b;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+        .mom-summary {
+            margin-top: .55rem;
+            font-size: .68rem;
+            font-weight: 600;
+            color: #a5b4fc;
+            text-align: center;
+        }
+        @media (max-width: 560px) {
+            .mom-grid { grid-template-columns: 1fr; }
+        }
+
     </style>
 </head>
 <body>
@@ -4304,6 +4388,37 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     <div class="pl"><span style="color:var(--cyan)" id="pl-ma">Match 10%</span><span style="color:var(--muted)" id="pl-di">Differ 90%</span></div>
                 </div>
             </div>
+
+            <!-- ═══ MOMENTUM SIDE PANEL (last 30 ticks) ═══ -->
+            <div class="mom-panel" id="mom-panel">
+                <div class="mom-hdr">
+                    <span class="mom-title">⚡ Momentum Sides (last 30 ticks)</span>
+                    <label class="mom-auto-label" title="When ON, automatically sets bot contract to the stronger side when confidence is STRONG or MODERATE">
+                        <input type="checkbox" id="mom-auto-push" checked>
+                        Auto-set bot
+                    </label>
+                </div>
+                <div class="mom-grid">
+                    <div class="mom-card" id="mom-ou-card">
+                        <div class="mom-side" id="mom-ou-side">—</div>
+                        <div class="mom-conf" id="mom-ou-conf">—</div>
+                        <div class="mom-detail">
+                            <span id="mom-over1-txt">Over1 —</span>
+                            <span id="mom-under8-txt">Under8 —</span>
+                        </div>
+                    </div>
+                    <div class="mom-card" id="mom-eo-card">
+                        <div class="mom-side" id="mom-eo-side">—</div>
+                        <div class="mom-conf" id="mom-eo-conf">—</div>
+                        <div class="mom-detail">
+                            <span id="mom-even-txt">Even —</span>
+                            <span id="mom-odd-txt">Odd —</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mom-summary" id="mom-summary">Waiting for ticks…</div>
+            </div>
+
             <hr>
             <div style="font-size:.72rem;font-weight:700;margin-bottom:.45rem">Transition Heatmap (from → to)</div>
             <div class="hmhdr">
@@ -5875,18 +5990,31 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     }
 
     function updateDGrid() {
-        const tot = S.digits.length || 1,
-            mx = Math.max.apply(null, S.dc) || 1;
-        const pos = S.dc.filter(function(c) { return c > 0; });
-        const mn = pos.length ? Math.min.apply(null, pos) : 0;
-        for (let i = 0; i < 10; i++) {
-            const p = (S.dc[i] / tot * 100);
-            document.getElementById('dp' + i).textContent = p.toFixed(1) + '%';
-            document.getElementById('db' + i).style.width = (S.dc[i] / mx * 100) + '%';
-            const el = document.getElementById('dc' + i);
-            el.classList.remove('hot', 'cold');
-            if (S.dc[i] === mx && mx > 0) el.classList.add('hot');
-            else if (S.dc[i] === mn && mn > 0) el.classList.add('cold');
+        /* Rolling last-30 frequency (falls back to full history if helpers missing) */
+        var freq = (typeof recentDigitFreq === 'function') ? recentDigitFreq(DIGIT_WINDOW || 30) : null;
+        var counts, tot, mx;
+        if (freq && freq.total > 0) {
+            counts = freq.counts;
+            tot = freq.total;
+        } else {
+            counts = S.dc;
+            tot = S.digits.length || 1;
+        }
+        mx = Math.max.apply(null, counts) || 1;
+        var pos = counts.filter(function(c) { return c > 0; });
+        var mn = pos.length ? Math.min.apply(null, pos) : 0;
+        for (var i = 0; i < 10; i++) {
+            var p = (counts[i] / tot * 100);
+            var dp = document.getElementById('dp' + i);
+            var db = document.getElementById('db' + i);
+            var el = document.getElementById('dc' + i);
+            if (dp) dp.textContent = p.toFixed(1) + '%';
+            if (db) db.style.width = (counts[i] / mx * 100) + '%';
+            if (el) {
+                el.classList.remove('hot', 'cold');
+                if (counts[i] === mx && mx > 0) el.classList.add('hot');
+                else if (counts[i] === mn && mn > 0) el.classList.add('cold');
+            }
         }
     }
 
@@ -6712,6 +6840,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 updateDGrid();
                 updateTape(digit);
                 updatePatterns();
+                if (typeof updateMomentumSideUI === 'function') updateMomentumSideUI();
                 if (_hmTimer) clearTimeout(_hmTimer);
                 _hmTimer = setTimeout(updateHM, 100);
                 _pendingUIUpdate = false;
@@ -6782,20 +6911,273 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         document.getElementById('tick-tag').textContent = S.digits.length + ' ticks';
     }
 
+
+    /* ════════════════════════════════════════
+       MOMENTUM SIDES — last 30 ticks
+       Identifies stronger Over1/Under8 and Even/Odd
+       with live panel + optional auto-push to bot
+    ════════════════════════════════════════ */
+    var DIGIT_WINDOW = 30;
+    var _lastMomPush = { ou: '', eo: '' };
+
+    function getRecentDigits(n) {
+        n = n || DIGIT_WINDOW;
+        if (!S.digits || !S.digits.length) return [];
+        return S.digits.slice(-n);
+    }
+
+    function recentDigitFreq(n) {
+        var recent = getRecentDigits(n);
+        var counts = new Array(10).fill(0);
+        for (var i = 0; i < recent.length; i++) counts[recent[i]]++;
+        var total = recent.length || 1;
+        return {
+            counts: counts,
+            total: total,
+            pct: counts.map(function(c) { return +(c / total * 100).toFixed(1); })
+        };
+    }
+
+    function recentOverUnderStats(n) {
+        var recent = getRecentDigits(n);
+        var total = recent.length || 1;
+        var over = [], under = [];
+        for (var b = 0; b <= 9; b++) {
+            var o = 0, u = 0;
+            for (var i = 0; i < recent.length; i++) {
+                if (recent[i] > b) o++;
+                if (recent[i] < b) u++;
+            }
+            over[b]  = +(o / total * 100).toFixed(1);
+            under[b] = +(u / total * 100).toFixed(1);
+        }
+        return { over: over, under: under, total: total };
+    }
+
+    function calcSideMomentum(n) {
+        n = n || DIGIT_WINDOW;
+        var recent = getRecentDigits(n);
+        if (recent.length < 10) return null;
+
+        var half = Math.floor(recent.length / 2);
+        var first  = recent.slice(0, half);
+        var second = recent.slice(half);
+
+        function pct(arr, fn) {
+            if (!arr.length) return 0;
+            var c = 0;
+            for (var i = 0; i < arr.length; i++) if (fn(arr[i])) c++;
+            return c / arr.length * 100;
+        }
+
+        var over1First  = pct(first,  function(d) { return d > 1; });
+        var over1Second = pct(second, function(d) { return d > 1; });
+        var under8First  = pct(first,  function(d) { return d < 8; });
+        var under8Second = pct(second, function(d) { return d < 8; });
+
+        var evenFirst  = pct(first,  function(d) { return d % 2 === 0; });
+        var evenSecond = pct(second, function(d) { return d % 2 === 0; });
+        var oddFirst   = 100 - evenFirst;
+        var oddSecond  = 100 - evenSecond;
+
+        var momOver1  = over1Second  - over1First;
+        var momUnder8 = under8Second - under8First;
+        var momEven   = evenSecond   - evenFirst;
+        var momOdd    = oddSecond    - oddFirst;
+
+        var curOver1  = pct(recent, function(d) { return d > 1; });
+        var curUnder8 = pct(recent, function(d) { return d < 8; });
+        var curEven   = pct(recent, function(d) { return d % 2 === 0; });
+        var curOdd    = 100 - curEven;
+
+        function score(cur, mom) { return cur + (mom * 1.4); }
+
+        var scoreOver1  = score(curOver1,  momOver1);
+        var scoreUnder8 = score(curUnder8, momUnder8);
+        var scoreEven   = score(curEven,   momEven);
+        var scoreOdd    = score(curOdd,    momOdd);
+
+        var ouSide  = scoreOver1 >= scoreUnder8 ? 'Over 1' : 'Under 8';
+        var ouDiff  = Math.abs(scoreOver1 - scoreUnder8);
+        var eoSide  = scoreEven >= scoreOdd ? 'Even' : 'Odd';
+        var eoDiff  = Math.abs(scoreEven - scoreOdd);
+
+        function conf(diff) {
+            if (diff >= 18) return 'STRONG';
+            if (diff >= 9)  return 'MODERATE';
+            return 'WEAK';
+        }
+
+        return {
+            window: recent.length,
+            over1:   { current: +curOver1.toFixed(1),  mom: +momOver1.toFixed(1),  score: +scoreOver1.toFixed(1) },
+            under8:  { current: +curUnder8.toFixed(1), mom: +momUnder8.toFixed(1), score: +scoreUnder8.toFixed(1) },
+            ouSide:  ouSide,
+            ouConf:  conf(ouDiff),
+            ouDiff:  +ouDiff.toFixed(1),
+            even:    { current: +curEven.toFixed(1), mom: +momEven.toFixed(1), score: +scoreEven.toFixed(1) },
+            odd:     { current: +curOdd.toFixed(1),  mom: +momOdd.toFixed(1),  score: +scoreOdd.toFixed(1) },
+            eoSide:  eoSide,
+            eoConf:  conf(eoDiff),
+            eoDiff:  +eoDiff.toFixed(1),
+            recommendation: {
+                overUnder: ouSide + ' (' + conf(ouDiff) + ')',
+                evenOdd:   eoSide + ' (' + conf(eoDiff) + ')',
+                summary:   ouSide + ' + ' + eoSide
+            }
+        };
+    }
+
+    function pushMomentumToBot(m) {
+        if (!m) return;
+        var contractEl = document.getElementById('b-contract');
+        var barrierEl  = document.getElementById('b-barrier');
+        if (!contractEl) return;
+
+        // Prefer Over/Under when usable; else Even/Odd
+        if (m.ouConf === 'STRONG' || m.ouConf === 'MODERATE') {
+            var targetCT = m.ouSide === 'Over 1' ? 'DIGITOVER' : 'DIGITUNDER';
+            var targetBarrier = m.ouSide === 'Over 1' ? 1 : 8;
+            if (_lastMomPush.ou !== targetCT) {
+                contractEl.value = targetCT;
+                if (barrierEl) barrierEl.value = targetBarrier;
+                _lastMomPush.ou = targetCT;
+                _lastMomPush.eo = '';
+                contractEl.style.borderColor = m.ouConf === 'STRONG' ? '#10b981' : '#f59e0b';
+                setTimeout(function() { contractEl.style.borderColor = ''; }, 1200);
+                if (typeof doLog === 'function') {
+                    doLog('Momentum auto-set → ' + m.ouSide + ' (' + m.ouConf + ')', 'ok');
+                }
+            }
+        } else if (m.eoConf === 'STRONG' || m.eoConf === 'MODERATE') {
+            var targetEO = m.eoSide === 'Even' ? 'DIGITEVEN' : 'DIGITODD';
+            if (_lastMomPush.eo !== targetEO) {
+                contractEl.value = targetEO;
+                _lastMomPush.eo = targetEO;
+                _lastMomPush.ou = '';
+                contractEl.style.borderColor = m.eoConf === 'STRONG' ? '#10b981' : '#f59e0b';
+                setTimeout(function() { contractEl.style.borderColor = ''; }, 1200);
+                if (typeof doLog === 'function') {
+                    doLog('Momentum auto-set → ' + m.eoSide + ' (' + m.eoConf + ')', 'ok');
+                }
+            }
+        }
+    }
+
+    function updateMomentumSideUI() {
+        var m = calcSideMomentum(DIGIT_WINDOW);
+        if (!m) return;
+
+        var ouCard = document.getElementById('mom-ou-card');
+        var eoCard = document.getElementById('mom-eo-card');
+
+        var ouSideEl = document.getElementById('mom-ou-side');
+        var ouConfEl = document.getElementById('mom-ou-conf');
+        if (ouSideEl) {
+            ouSideEl.textContent = m.ouSide;
+            ouSideEl.style.color = m.ouSide === 'Over 1' ? '#34d399' : '#fbbf24';
+        }
+        if (ouConfEl) {
+            ouConfEl.textContent = m.ouConf;
+            ouConfEl.style.color = m.ouConf === 'STRONG' ? '#10b981' :
+                                   m.ouConf === 'MODERATE' ? '#f59e0b' : '#64748b';
+        }
+        if (ouCard) ouCard.className = 'mom-card ' + m.ouConf.toLowerCase();
+
+        var o1 = document.getElementById('mom-over1-txt');
+        var u8 = document.getElementById('mom-under8-txt');
+        if (o1) o1.textContent = 'Over1 ' + m.over1.current + '%  mom ' + (m.over1.mom >= 0 ? '+' : '') + m.over1.mom;
+        if (u8) u8.textContent = 'Under8 ' + m.under8.current + '%  mom ' + (m.under8.mom >= 0 ? '+' : '') + m.under8.mom;
+
+        var eoSideEl = document.getElementById('mom-eo-side');
+        var eoConfEl = document.getElementById('mom-eo-conf');
+        if (eoSideEl) {
+            eoSideEl.textContent = m.eoSide;
+            eoSideEl.style.color = m.eoSide === 'Even' ? '#60a5fa' : '#c084fc';
+        }
+        if (eoConfEl) {
+            eoConfEl.textContent = m.eoConf;
+            eoConfEl.style.color = m.eoConf === 'STRONG' ? '#10b981' :
+                                   m.eoConf === 'MODERATE' ? '#f59e0b' : '#64748b';
+        }
+        if (eoCard) eoCard.className = 'mom-card ' + m.eoConf.toLowerCase();
+
+        var ev = document.getElementById('mom-even-txt');
+        var od = document.getElementById('mom-odd-txt');
+        if (ev) ev.textContent = 'Even ' + m.even.current + '%  mom ' + (m.even.mom >= 0 ? '+' : '') + m.even.mom;
+        if (od) od.textContent = 'Odd ' + m.odd.current + '%  mom ' + (m.odd.mom >= 0 ? '+' : '') + m.odd.mom;
+
+        var sum = document.getElementById('mom-summary');
+        if (sum) {
+            sum.textContent = 'Best right now → ' + m.recommendation.summary +
+                '  ·  window ' + m.window + ' ticks';
+        }
+
+        // Sync classic Over1 / Under8 progress bars to rolling window
+        var ppOv = document.getElementById('pp-ov');
+        var plOv = document.getElementById('pl-ov');
+        var plUn = document.getElementById('pl-un');
+        if (ppOv) ppOv.style.width = m.over1.current + '%';
+        if (plOv) plOv.textContent = 'Over 1: ' + m.over1.current + '%';
+        if (plUn) plUn.textContent = 'Under 8: ' + m.under8.current + '%';
+
+        // Sync Even/Odd bars to rolling window
+        var ppEv = document.getElementById('pp-ev');
+        var plEv = document.getElementById('pl-ev');
+        var plOd = document.getElementById('pl-od');
+        if (ppEv) ppEv.style.width = m.even.current + '%';
+        if (plEv) plEv.textContent = 'Even ' + m.even.current + '%';
+        if (plOd) plOd.textContent = 'Odd ' + m.odd.current + '%';
+
+        var autoOn = document.getElementById('mom-auto-push');
+        if (autoOn && autoOn.checked) {
+            pushMomentumToBot(m);
+        }
+    }
+
+
     function updatePatterns() {
         var ef = function(v, t) { return (v / (t || 1) * 100).toFixed(1); };
-        var eoT = S.eo.e + S.eo.o || 1,
-            ep = ef(S.eo.e, eoT),
-            op = ef(S.eo.o, eoT);
-        document.getElementById('pp-ev').style.width = ep + '%';
-        document.getElementById('pl-ev').textContent = 'Even ' + ep + '%';
-        document.getElementById('pl-od').textContent = 'Odd ' + op + '%';
-        var tot2 = S.digits.length || 1;
-        var ovp = (S.ou.o / tot2 * 100).toFixed(1);
-        var unp = (S.ou.u / tot2 * 100).toFixed(1);
-        document.getElementById('pp-ov').style.width = ovp + '%';
-        document.getElementById('pl-ov').textContent = 'Over 1: ' + ovp + '%';
-        document.getElementById('pl-un').textContent = 'Under 8: ' + unp + '%';
+        /* Prefer rolling 30-tick window when momentum helpers exist */
+        var usedRolling = false;
+        if (typeof getRecentDigits === 'function' && S.digits && S.digits.length >= 10) {
+            var recent = getRecentDigits(DIGIT_WINDOW || 30);
+            if (recent.length) {
+                var eC = 0, o1 = 0, u8 = 0;
+                for (var ri = 0; ri < recent.length; ri++) {
+                    var rd = recent[ri];
+                    if (rd % 2 === 0) eC++;
+                    if (rd > 1) o1++;
+                    if (rd < 8) u8++;
+                }
+                var rt = recent.length;
+                var ep = (eC / rt * 100).toFixed(1);
+                var op = (100 - parseFloat(ep)).toFixed(1);
+                var ovp = (o1 / rt * 100).toFixed(1);
+                var unp = (u8 / rt * 100).toFixed(1);
+                document.getElementById('pp-ev').style.width = ep + '%';
+                document.getElementById('pl-ev').textContent = 'Even ' + ep + '%';
+                document.getElementById('pl-od').textContent = 'Odd ' + op + '%';
+                document.getElementById('pp-ov').style.width = ovp + '%';
+                document.getElementById('pl-ov').textContent = 'Over 1: ' + ovp + '%';
+                document.getElementById('pl-un').textContent = 'Under 8: ' + unp + '%';
+                usedRolling = true;
+            }
+        }
+        if (!usedRolling) {
+            var eoT = S.eo.e + S.eo.o || 1,
+                ep = ef(S.eo.e, eoT),
+                op = ef(S.eo.o, eoT);
+            document.getElementById('pp-ev').style.width = ep + '%';
+            document.getElementById('pl-ev').textContent = 'Even ' + ep + '%';
+            document.getElementById('pl-od').textContent = 'Odd ' + op + '%';
+            var tot2 = S.digits.length || 1;
+            var ovp = (S.ou.o / tot2 * 100).toFixed(1);
+            var unp = (S.ou.u / tot2 * 100).toFixed(1);
+            document.getElementById('pp-ov').style.width = ovp + '%';
+            document.getElementById('pl-ov').textContent = 'Over 1: ' + ovp + '%';
+            document.getElementById('pl-un').textContent = 'Under 8: ' + unp + '%';
+        }
         var rfT = S.rf.r + S.rf.f + S.rf.s || 1,
             rip = ef(S.rf.r, rfT),
             fap = ef(S.rf.f, rfT);
